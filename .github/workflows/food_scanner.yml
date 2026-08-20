@@ -78,7 +78,8 @@ jobs:
         run: |
           git config --global user.name "FoodAllBot"
           git config --global user.email "bot@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
           git status
           git add export/
           git commit -m "Auto-export: venues, dishes, reviews, sources, manifest" || echo "No changes to commit"
-          git push
+          git push origin HEAD:main
