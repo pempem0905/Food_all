@@ -1,64 +1,122 @@
+import hashlib
 import json
 import random
+from datetime import datetime, timezone
+from pathlib import Path
+
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
 
 USER_AGENTS = [
     "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1",
     "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36",
 ]
 
-def scan_golden_hour_deals():
-    print(">>> [FOOD_ALL] Đang kích hoạt radar quét khung giờ vàng toàn quốc...")
-    target_url = "https://vnexpress.net/rss/du-lich.rss"
-    headers = {"User-Agent": random.choice(USER_AGENTS), "Accept-Language": "vi-VN,vi;q=0.9"}
-    scanned_deals = []
-    
-    try:
-        response = requests.get(target_url, headers=headers, timeout=15)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.content, "xml")
-            items = soup.find_all("item")[:10]
-            
-            for item in items:
-                title = item.title.text if item.title else ""
-                link = item.link.text if item.link else ""
-                
-                if any(kw in title.lower() for kw in ["giảm", "voucher", "deal", "freeship", "khuyến mãi", "quán", "ăn"]):
-                    store_voucher = "Giảm 25K đơn từ 100K + Freeship Extra" if "giảm" in title.lower() else "Freeship nội khu 15K"
-                    deep_link = f"https://shopeefood.vn/search?keyword={title[:10]}"
-                    
-                    scanned_deals.append({
-                        "restaurant_name": title[:50],
-                        "golden_hour_voucher": store_voucher,
-                        "ordering_link": deep_link,
-                        "source_link": link,
-                        "updated_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    })
-        print(f">>> Đã quét thành công {len(scanned_deals)} deal!")
-    except Exception as e:
-        print(f"Lỗi: {e}")
-        
-    save_to_database(scanned_deals)
+SOURCES = [
+    {
+        "name": "vnexpress_du_lich_rss",
+        "url": "https://vnexpress.net/rss/du-lich.rss",
+        "type": "rss",
+    }
+]
 
-def save_to_database(new_deals):
-    filename = "food_deals_live.json"
+PROMO_KEYWORDS = (
+    "giảm", "voucher", "deal", "freeship", "khuyến mãi", "ưu đãi", "sale",
+    "mua 1 tặng 1", "tặng", "combo", "đồng giá"
+)
+FOOD_KEYWORDS = (
+    "ăn", "quán", "nhà hàng", "cafe", "cà phê", "trà sữa", "buffet", "food",
+    "bánh", "phở", "bún", "cơm", "lẩu", "nướng"
+)
+
+OUTPUT = Path("food_deals_live.json")
+HEALTH = Path("food_scan_health.json")
+
+
+def utc_now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def record_id(source_url: str, title: str) -> str:
+    return hashlib.sha256(f"{source_url}|{title}".encode("utf-8")).hexdigest()[:20]
+
+
+def fetch_rss(source):
+    headers = {
+        "User-Agent": random.choice(USER_AGENTS),
+        "Accept-Language": "vi-VN,vi;q=0.9,en;q=0.5",
+    }
+    response = requests.get(source["url"], headers=headers, timeout=20)
+    response.raise_for_status()
+    soup = BeautifulSoup(response.content, "xml")
+    records = []
+    for item in soup.find_all("item")[:100]:
+        title = item.title.text.strip() if item.title else ""
+        link = item.link.text.strip() if item.link else ""
+        lowered = title.lower()
+        has_promo = any(k in lowered for k in PROMO_KEYWORDS)
+        has_food = any(k in lowered for k in FOOD_KEYWORDS)
+        if not (has_promo and has_food):
+            continue
+        records.append({
+            "id": record_id(source["url"], title),
+            "title": title,
+            "source_name": source["name"],
+            "source_link": link,
+            "source_feed": source["url"],
+            "evidence_type": "source_title",
+            "verified": False,
+            "voucher_code": None,
+            "discount_text": None,
+            "ordering_link": None,
+            "discovered_at": utc_now(),
+        })
+    return records
+
+
+def load_existing():
     try:
-        with open(filename, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        data = json.loads(OUTPUT.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
     except (FileNotFoundError, json.JSONDecodeError):
-        data = []
-        
-    existing_names = {d["restaurant_name"] for d in data}
-    for deal in new_deals:
-        if deal["restaurant_name"] not in existing_names:
-            data.insert(0, deal)
-            
-    data = data[:200]
-    with open(filename, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-    print(">>> Đã lưu vào kho dữ liệu thành công.")
+        return []
+
+
+def save_records(new_records):
+    existing = load_existing()
+    by_id = {row.get("id"): row for row in existing if row.get("id")}
+    for row in new_records:
+        by_id[row["id"]] = row
+    merged = sorted(by_id.values(), key=lambda r: r.get("discovered_at", ""), reverse=True)[:5000]
+    OUTPUT.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
+    return len(merged)
+
+
+def main():
+    discovered = []
+    errors = []
+    for source in SOURCES:
+        try:
+            discovered.extend(fetch_rss(source))
+        except Exception as exc:
+            errors.append({"source": source["name"], "error": str(exc)[:500]})
+
+    total = save_records(discovered)
+    health = {
+        "ok": len(errors) == 0,
+        "checked_at": utc_now(),
+        "sources_total": len(SOURCES),
+        "sources_failed": len(errors),
+        "new_candidates_this_run": len(discovered),
+        "stored_candidates_total": total,
+        "errors": errors,
+        "data_policy": "no_fabricated_voucher_or_discount_values",
+    }
+    HEALTH.write_text(json.dumps(health, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(json.dumps(health, ensure_ascii=False))
+    if errors and not discovered:
+        raise SystemExit(2)
+
 
 if __name__ == "__main__":
-    scan_golden_hour_deals()
+    main()
