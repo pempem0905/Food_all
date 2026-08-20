@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "region": "ap-southeast-1",
+  "account_id": "387743104859",
+  "principal_arn": "arn:aws:iam::387743104859:user/vfv-crawler-bot",
+  "lightsail_api": "ok",
+  "checked_at": "2026-08-20T11:35:03Z"
+}
