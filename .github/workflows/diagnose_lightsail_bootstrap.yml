@@ -1,0 +1,74 @@
+name: Diagnose Lightsail Bootstrap
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/diagnose_lightsail_bootstrap.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      INSTANCE_NAME: vfv-crawler-asia-01
+    steps:
+      - uses: actions/checkout@v4
+      - name: Diagnose
+        shell: bash
+        run: |
+          set -u
+          IP=$(aws lightsail get-instance --instance-name "$INSTANCE_NAME" --region "$AWS_REGION" --query 'instance.publicIpAddress' --output text 2>/dev/null || true)
+          STATE=$(aws lightsail get-instance-state --instance-name "$INSTANCE_NAME" --region "$AWS_REGION" --query 'state.name' --output text 2>/dev/null || true)
+          aws lightsail download-default-key-pair --region "$AWS_REGION" --output json >/tmp/key.json 2>/dev/null || true
+          if [ -s /tmp/key.json ]; then
+            jq -r '.privateKeyBase64 // empty' /tmp/key.json | base64 -d >/tmp/lightsail.pem 2>/dev/null || true
+            chmod 600 /tmp/lightsail.pem 2>/dev/null || true
+          fi
+
+          SSH_OK=false
+          CLOUD_INIT="unknown"
+          BOOTSTRAP="missing"
+          DOCKER="missing"
+          TIMER="unknown"
+          APT="unknown"
+          for i in $(seq 1 12); do
+            if [ -s /tmp/lightsail.pem ] && ssh -o StrictHostKeyChecking=no -o ConnectTimeout=6 -i /tmp/lightsail.pem ubuntu@"$IP" 'echo ok' >/dev/null 2>&1; then
+              SSH_OK=true
+              CLOUD_INIT=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=6 -i /tmp/lightsail.pem ubuntu@"$IP" 'cloud-init status 2>/dev/null || true' 2>/dev/null | tr '\n' ' ')
+              BOOTSTRAP=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=6 -i /tmp/lightsail.pem ubuntu@"$IP" 'cat /opt/vfv/bootstrap_status 2>/dev/null || echo missing' 2>/dev/null | tr '\n' ' ')
+              DOCKER=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=6 -i /tmp/lightsail.pem ubuntu@"$IP" 'docker --version 2>/dev/null || echo missing' 2>/dev/null | tr '\n' ' ')
+              TIMER=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=6 -i /tmp/lightsail.pem ubuntu@"$IP" 'systemctl is-active vfv-self-update.timer 2>/dev/null || true' 2>/dev/null | tr '\n' ' ')
+              APT=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=6 -i /tmp/lightsail.pem ubuntu@"$IP" 'pgrep -af "apt|dpkg" 2>/dev/null | head -3 || true' 2>/dev/null | tr '\n' ' ')
+              break
+            fi
+            sleep 5
+          done
+          rm -f /tmp/lightsail.pem /tmp/key.json
+
+          jq -n \
+            --arg instance "$INSTANCE_NAME" \
+            --arg state "$STATE" \
+            --arg ip "$IP" \
+            --argjson ssh_ok "$SSH_OK" \
+            --arg cloud_init "$CLOUD_INIT" \
+            --arg bootstrap "$BOOTSTRAP" \
+            --arg docker "$DOCKER" \
+            --arg timer "$TIMER" \
+            --arg apt "$APT" \
+            --arg checked_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{instance_name:$instance,state:$state,public_ip:$ip,ssh_ok:$ssh_ok,cloud_init:$cloud_init,bootstrap_status:$bootstrap,docker:$docker,self_update_timer:$timer,apt_process:$apt,checked_at:$checked_at}' > aws_bootstrap_diagnostic.json
+
+      - name: Persist diagnostic
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add aws_bootstrap_diagnostic.json
+          git commit -m "Record Lightsail bootstrap diagnostic" || exit 0
+          git push
