@@ -1,0 +1,136 @@
+name: Repair Lightsail Bootstrap
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/repair_lightsail_bootstrap.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      INSTANCE_NAME: vfv-crawler-asia-01
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure SSH and repair bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          IP=$(aws lightsail get-instance --instance-name "$INSTANCE_NAME" --region "$AWS_REGION" --query 'instance.publicIpAddress' --output text)
+
+          # Ensure standard SSH port is reachable. Idempotent.
+          PORT22=$(aws lightsail get-instance-port-states --instance-name "$INSTANCE_NAME" --region "$AWS_REGION" --query "portStates[?fromPort==\`22\` && toPort==\`22\` && protocol=='tcp'].state" --output text 2>/dev/null || true)
+          if [ "$PORT22" != "open" ]; then
+            aws lightsail open-instance-public-ports \
+              --instance-name "$INSTANCE_NAME" \
+              --region "$AWS_REGION" \
+              --port-info 'fromPort=22,toPort=22,protocol=tcp,cidrs=0.0.0.0/0' >/dev/null
+          fi
+
+          # Use the Lightsail temporary SSH access key rather than depending on a local/default key pair.
+          aws lightsail get-instance-access-details \
+            --instance-name "$INSTANCE_NAME" \
+            --protocol ssh \
+            --region "$AWS_REGION" \
+            --output json >/tmp/access.json
+          jq -r '.accessDetails.privateKey' /tmp/access.json >/tmp/key.pem
+          jq -r '.accessDetails.certKey // empty' /tmp/access.json >/tmp/key-cert.pub
+          USERNAME=$(jq -r '.accessDetails.username // "ubuntu"' /tmp/access.json)
+          chmod 600 /tmp/key.pem /tmp/key-cert.pub
+
+          SSH_OPTS=(-o StrictHostKeyChecking=no -o ConnectTimeout=8 -o ServerAliveInterval=15 -i /tmp/key.pem)
+          if [ -s /tmp/key-cert.pub ]; then SSH_OPTS+=(-o CertificateFile=/tmp/key-cert.pub); fi
+
+          OK=false
+          for i in $(seq 1 30); do
+            if ssh "${SSH_OPTS[@]}" "$USERNAME@$IP" 'echo ssh-ok' >/dev/null 2>&1; then OK=true; break; fi
+            sleep 5
+          done
+          test "$OK" = true
+
+          cat >/tmp/remote-bootstrap.sh <<'EOS'
+          set -euxo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          # Let first-boot package operations finish, then self-heal dpkg if needed.
+          for i in $(seq 1 60); do
+            if ! sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 && ! sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1; then break; fi
+            sleep 5
+          done
+          sudo dpkg --configure -a || true
+          sudo apt-get update -y
+          sudo apt-get install -y docker.io git curl jq unzip python3 python3-pip ca-certificates
+          sudo systemctl enable --now docker
+          sudo mkdir -p /opt/vfv
+          sudo chown -R "$USER":"$USER" /opt/vfv
+          if [ ! -d /opt/vfv/Food_all/.git ]; then
+            git clone https://github.com/pempem0905/Food_all.git /opt/vfv/Food_all
+          else
+            git -C /opt/vfv/Food_all fetch origin main
+            git -C /opt/vfv/Food_all reset --hard origin/main
+          fi
+          sudo tee /usr/local/bin/vfv-self-update >/dev/null <<'EOF'
+          #!/bin/bash
+          set -e
+          git -C /opt/vfv/Food_all fetch origin main
+          git -C /opt/vfv/Food_all reset --hard origin/main
+          EOF
+          sudo chmod +x /usr/local/bin/vfv-self-update
+          sudo tee /etc/systemd/system/vfv-self-update.service >/dev/null <<'EOF'
+          [Unit]
+          Description=VFV crawler repo updater
+          After=network-online.target
+          [Service]
+          Type=oneshot
+          User=ubuntu
+          ExecStart=/usr/local/bin/vfv-self-update
+          EOF
+          sudo tee /etc/systemd/system/vfv-self-update.timer >/dev/null <<'EOF'
+          [Unit]
+          Description=Refresh VFV crawler repo every 5 minutes
+          [Timer]
+          OnBootSec=2min
+          OnUnitActiveSec=5min
+          Unit=vfv-self-update.service
+          [Install]
+          WantedBy=timers.target
+          EOF
+          sudo systemctl daemon-reload
+          sudo systemctl enable --now vfv-self-update.timer
+          echo ready | sudo tee /opt/vfv/bootstrap_status >/dev/null
+          EOS
+
+          scp "${SSH_OPTS[@]}" /tmp/remote-bootstrap.sh "$USERNAME@$IP:/tmp/remote-bootstrap.sh"
+          ssh "${SSH_OPTS[@]}" "$USERNAME@$IP" 'bash /tmp/remote-bootstrap.sh'
+
+          BOOTSTRAP=$(ssh "${SSH_OPTS[@]}" "$USERNAME@$IP" 'cat /opt/vfv/bootstrap_status 2>/dev/null || true' | tr '\n' ' ')
+          DOCKER=$(ssh "${SSH_OPTS[@]}" "$USERNAME@$IP" 'docker --version 2>/dev/null || sudo docker --version 2>/dev/null || true' | tr '\n' ' ')
+          TIMER=$(ssh "${SSH_OPTS[@]}" "$USERNAME@$IP" 'systemctl is-active vfv-self-update.timer 2>/dev/null || true' | tr '\n' ' ')
+          REPO=$(ssh "${SSH_OPTS[@]}" "$USERNAME@$IP" 'git -C /opt/vfv/Food_all rev-parse --short HEAD 2>/dev/null || true' | tr '\n' ' ')
+          rm -f /tmp/key.pem /tmp/key-cert.pub /tmp/access.json /tmp/remote-bootstrap.sh
+
+          jq -n \
+            --arg instance "$INSTANCE_NAME" \
+            --arg ip "$IP" \
+            --arg bootstrap "$BOOTSTRAP" \
+            --arg docker "$DOCKER" \
+            --arg timer "$TIMER" \
+            --arg repo "$REPO" \
+            --arg checked_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{ready:($bootstrap|contains("ready")),instance_name:$instance,public_ip:$ip,bootstrap_status:$bootstrap,docker:$docker,self_update_timer:$timer,repo_head:$repo,checked_at:$checked_at}' > aws_bootstrap_result.json
+          jq -e '.ready == true' aws_bootstrap_result.json >/dev/null
+
+      - name: Persist result
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add aws_bootstrap_result.json
+          git commit -m "Record repaired Lightsail bootstrap result" || exit 0
+          git push
