@@ -1,0 +1,28 @@
+{
+  "checked_at": "2026-08-20T19:40:45.714682+00:00",
+  "sources_attempted": 6,
+  "raw_candidates": 6954,
+  "unique_candidates": 6954,
+  "areas": [
+    "ha_noi",
+    "hcm",
+    "da_nang",
+    "hai_phong",
+    "can_tho",
+    "hue"
+  ],
+  "errors": [
+    {
+      "area": "da_nang",
+      "error": "504 Server Error: Gateway Timeout for url: https://overpass-api.de/api/interpreter"
+    },
+    {
+      "area": "can_tho",
+      "error": "429 Client Error: Too Many Requests for url: https://overpass-api.de/api/interpreter"
+    },
+    {
+      "area": "hue",
+      "error": "429 Client Error: Too Many Requests for url: https://overpass-api.de/api/interpreter"
+    }
+  ]
+}
