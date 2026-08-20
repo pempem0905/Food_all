@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "instance_name": "vfv-crawler-asia-01",
+  "region": "ap-southeast-1",
+  "availability_zone": "ap-southeast-1a",
+  "state": "running",
+  "public_ip": "13.250.9.71",
+  "blueprint_id": "ubuntu_24_04",
+  "bundle_id": "small_3_0",
+  "monthly_price_usd": 12.0,
+  "checked_at": "2026-08-20T11:43:07Z"
+}
