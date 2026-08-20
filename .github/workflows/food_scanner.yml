@@ -2,12 +2,15 @@ name: FOOD_ALL Realtime Scanner
 
 on:
   schedule:
-    - cron: '*/30 3-6 * * *'
-    - cron: '*/30 10-13 * * *'
+    - cron: '7 * * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: food-github-fallback-scan
+  cancel-in-progress: false
 
 jobs:
   scan-food-deals:
@@ -23,7 +26,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests beautifulsoup4
+          pip install -r requirements.txt
 
       - name: Run Golden Hour Scanner
         run: python food_golden_scanner.py
@@ -31,14 +34,13 @@ jobs:
       - name: Run Export Generator
         run: python export_generator.py
 
-      - name: Commit and push updated deals and exports
+      - name: Commit persisted fallback artifacts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --global user.name "FoodAllBot"
           git config --global user.email "bot@users.noreply.github.com"
           git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-          git status
-          git add export/
-          git commit -m "Auto-export: venues, dishes, reviews, sources, manifest" || echo "No changes to commit"
+          git add export/ food_deals_live.json food_scan_health.json
+          git commit -m "Auto-scan: refresh FOOD fallback artifacts" || echo "No changes to commit"
           git push origin HEAD:main
