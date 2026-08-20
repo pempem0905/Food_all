@@ -1,26 +1,15 @@
 {
-  "checked_at": "2026-08-20T22:36:55Z",
-  "runtime_truth": "supabase:mqqfjrytmpasopgeodfa",
-  "phase": "venue_coverage",
-  "voucher_hunting": "paused",
-  "source": "OpenStreetMap/Overpass via GitHub bulk artifact",
-  "artifact_raw_candidates": 6331,
-  "last_import": {
-    "raw_candidates": 6331,
-    "venues_inserted": 6032,
-    "venues_updated": 299,
-    "rejected": 0,
-    "raw_new": 6032
-  },
-  "persisted": {
-    "total_venues": 6401,
-    "osm_venues": 6331,
-    "province_city_labels_covered": 89
-  },
-  "aws": {
-    "role": "optional_accelerator",
-    "lightsail_api_last_known": "ok",
-    "blocking": false
-  },
-  "architecture": "bulk-first; GitHub artifact -> idempotent Supabase Edge importer; pg_net trigger; AWS non-blocking"
+  "checked_at": "2026-08-20T22:40:02.237796+00:00",
+  "sources_attempted": 6,
+  "raw_candidates": 9777,
+  "unique_candidates": 9777,
+  "areas": [
+    "ha_noi",
+    "hcm",
+    "da_nang",
+    "hai_phong",
+    "can_tho",
+    "hue"
+  ],
+  "errors": []
 }
