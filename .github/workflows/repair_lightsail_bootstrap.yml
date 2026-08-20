@@ -5,13 +5,22 @@ on:
   push:
     paths:
       - '.github/workflows/repair_lightsail_bootstrap.yml'
+      - 'food_golden_scanner.py'
+      - 'requirements.txt'
+  schedule:
+    - cron: '17 * * * *'
 
 permissions:
   contents: write
 
+concurrency:
+  group: food-aws-self-heal
+  cancel-in-progress: false
+
 jobs:
   repair:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -19,90 +28,124 @@ jobs:
       INSTANCE_NAME: vfv-crawler-asia-01
     steps:
       - uses: actions/checkout@v4
-      - name: Ensure SSH and repair bootstrap
+
+      - name: Validate AWS credentials
+        run: |
+          set -euo pipefail
+          aws sts get-caller-identity >/dev/null
+          aws lightsail get-instance --instance-name "$INSTANCE_NAME" --region "$AWS_REGION" >/dev/null
+
+      - name: Repair host and install worker
         shell: bash
         run: |
           set -euo pipefail
           IP=$(aws lightsail get-instance --instance-name "$INSTANCE_NAME" --region "$AWS_REGION" --query 'instance.publicIpAddress' --output text)
-
-          # Ensure standard SSH port is reachable. Idempotent.
-          PORT22=$(aws lightsail get-instance-port-states --instance-name "$INSTANCE_NAME" --region "$AWS_REGION" --query "portStates[?fromPort==\`22\` && toPort==\`22\` && protocol=='tcp'].state" --output text 2>/dev/null || true)
-          if [ "$PORT22" != "open" ]; then
-            aws lightsail open-instance-public-ports \
-              --instance-name "$INSTANCE_NAME" \
-              --region "$AWS_REGION" \
-              --port-info 'fromPort=22,toPort=22,protocol=tcp,cidrs=0.0.0.0/0' >/dev/null
+          STATE=$(aws lightsail get-instance --instance-name "$INSTANCE_NAME" --region "$AWS_REGION" --query 'instance.state.name' --output text)
+          if [ "$STATE" != "running" ]; then
+            aws lightsail start-instance --instance-name "$INSTANCE_NAME" --region "$AWS_REGION" >/dev/null || true
+            aws lightsail wait instance-running --instance-name "$INSTANCE_NAME" --region "$AWS_REGION" || true
           fi
 
-          # Use the Lightsail temporary SSH access key rather than depending on a local/default key pair.
-          aws lightsail get-instance-access-details \
-            --instance-name "$INSTANCE_NAME" \
-            --protocol ssh \
-            --region "$AWS_REGION" \
-            --output json >/tmp/access.json
+          aws lightsail open-instance-public-ports \
+            --instance-name "$INSTANCE_NAME" --region "$AWS_REGION" \
+            --port-info 'fromPort=22,toPort=22,protocol=tcp,cidrs=0.0.0.0/0' >/dev/null || true
+
+          aws lightsail get-instance-access-details --instance-name "$INSTANCE_NAME" --protocol ssh --region "$AWS_REGION" --output json >/tmp/access.json
           jq -r '.accessDetails.privateKey' /tmp/access.json >/tmp/key.pem
           jq -r '.accessDetails.certKey // empty' /tmp/access.json >/tmp/key-cert.pub
           USERNAME=$(jq -r '.accessDetails.username // "ubuntu"' /tmp/access.json)
           chmod 600 /tmp/key.pem /tmp/key-cert.pub
-
-          SSH_OPTS=(-o StrictHostKeyChecking=no -o ConnectTimeout=8 -o ServerAliveInterval=15 -i /tmp/key.pem)
+          SSH_OPTS=(-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -i /tmp/key.pem)
           if [ -s /tmp/key-cert.pub ]; then SSH_OPTS+=(-o CertificateFile=/tmp/key-cert.pub); fi
 
           OK=false
-          for i in $(seq 1 30); do
-            if ssh "${SSH_OPTS[@]}" "$USERNAME@$IP" 'echo ssh-ok' >/dev/null 2>&1; then OK=true; break; fi
+          for i in $(seq 1 36); do
+            if ssh "${SSH_OPTS[@]}" "$USERNAME@$IP" 'echo ok' >/dev/null 2>&1; then OK=true; break; fi
             sleep 5
           done
           test "$OK" = true
 
           cat >/tmp/remote-bootstrap.sh <<'EOS'
-          set -euxo pipefail
+          set -euo pipefail
           export DEBIAN_FRONTEND=noninteractive
-          # Let first-boot package operations finish, then self-heal dpkg if needed.
           for i in $(seq 1 60); do
             if ! sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 && ! sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1; then break; fi
             sleep 5
           done
           sudo dpkg --configure -a || true
           sudo apt-get update -y
-          sudo apt-get install -y docker.io git curl jq unzip python3 python3-pip ca-certificates
-          sudo systemctl enable --now docker
+          sudo apt-get install -y git curl jq python3 python3-venv ca-certificates
+
           sudo mkdir -p /opt/vfv
           sudo chown -R "$USER":"$USER" /opt/vfv
           if [ ! -d /opt/vfv/Food_all/.git ]; then
             git clone https://github.com/pempem0905/Food_all.git /opt/vfv/Food_all
-          else
-            git -C /opt/vfv/Food_all fetch origin main
-            git -C /opt/vfv/Food_all reset --hard origin/main
           fi
-          sudo tee /usr/local/bin/vfv-self-update >/dev/null <<'EOF'
-          #!/bin/bash
-          set -e
           git -C /opt/vfv/Food_all fetch origin main
           git -C /opt/vfv/Food_all reset --hard origin/main
+
+          if [ ! -x /opt/vfv/venv/bin/python ]; then
+            python3 -m venv /opt/vfv/venv
+          fi
+          /opt/vfv/venv/bin/pip install --upgrade pip
+          /opt/vfv/venv/bin/pip install -r /opt/vfv/Food_all/requirements.txt
+
+          sudo tee /usr/local/bin/vfv-self-update >/dev/null <<'EOF'
+          #!/bin/bash
+          set -euo pipefail
+          git -C /opt/vfv/Food_all fetch origin main
+          git -C /opt/vfv/Food_all reset --hard origin/main
+          /opt/vfv/venv/bin/pip install -q -r /opt/vfv/Food_all/requirements.txt
           EOF
           sudo chmod +x /usr/local/bin/vfv-self-update
+
           sudo tee /etc/systemd/system/vfv-self-update.service >/dev/null <<'EOF'
           [Unit]
-          Description=VFV crawler repo updater
+          Description=VFV Food crawler code updater
           After=network-online.target
           [Service]
           Type=oneshot
           User=ubuntu
           ExecStart=/usr/local/bin/vfv-self-update
           EOF
+
           sudo tee /etc/systemd/system/vfv-self-update.timer >/dev/null <<'EOF'
           [Unit]
-          Description=Refresh VFV crawler repo every 5 minutes
+          Description=Refresh VFV Food crawler repo every 5 minutes
           [Timer]
           OnBootSec=2min
           OnUnitActiveSec=5min
-          Unit=vfv-self-update.service
+          Persistent=true
           [Install]
           WantedBy=timers.target
           EOF
+
+          sudo tee /etc/systemd/system/vfv-food-scan.service >/dev/null <<'EOF'
+          [Unit]
+          Description=VFV Food candidate scanner
+          After=network-online.target
+          [Service]
+          Type=oneshot
+          User=ubuntu
+          WorkingDirectory=/opt/vfv/Food_all
+          ExecStart=/opt/vfv/venv/bin/python /opt/vfv/Food_all/food_golden_scanner.py
+          EOF
+
+          sudo tee /etc/systemd/system/vfv-food-scan.timer >/dev/null <<'EOF'
+          [Unit]
+          Description=Run VFV Food scan every 15 minutes
+          [Timer]
+          OnBootSec=1min
+          OnUnitActiveSec=15min
+          Persistent=true
+          RandomizedDelaySec=45
+          [Install]
+          WantedBy=timers.target
+          EOF
+
           sudo systemctl daemon-reload
-          sudo systemctl enable --now vfv-self-update.timer
+          sudo systemctl enable --now vfv-self-update.timer vfv-food-scan.timer
+          sudo systemctl start vfv-food-scan.service || true
           echo ready | sudo tee /opt/vfv/bootstrap_status >/dev/null
           EOS
 
@@ -110,27 +153,28 @@ jobs:
           ssh "${SSH_OPTS[@]}" "$USERNAME@$IP" 'bash /tmp/remote-bootstrap.sh'
 
           BOOTSTRAP=$(ssh "${SSH_OPTS[@]}" "$USERNAME@$IP" 'cat /opt/vfv/bootstrap_status 2>/dev/null || true' | tr '\n' ' ')
-          DOCKER=$(ssh "${SSH_OPTS[@]}" "$USERNAME@$IP" 'docker --version 2>/dev/null || sudo docker --version 2>/dev/null || true' | tr '\n' ' ')
-          TIMER=$(ssh "${SSH_OPTS[@]}" "$USERNAME@$IP" 'systemctl is-active vfv-self-update.timer 2>/dev/null || true' | tr '\n' ' ')
+          UPDATE_TIMER=$(ssh "${SSH_OPTS[@]}" "$USERNAME@$IP" 'systemctl is-active vfv-self-update.timer 2>/dev/null || true' | tr '\n' ' ')
+          SCAN_TIMER=$(ssh "${SSH_OPTS[@]}" "$USERNAME@$IP" 'systemctl is-active vfv-food-scan.timer 2>/dev/null || true' | tr '\n' ' ')
+          SCAN_STATUS=$(ssh "${SSH_OPTS[@]}" "$USERNAME@$IP" 'systemctl show vfv-food-scan.service -p Result --value 2>/dev/null || true' | tr '\n' ' ')
           REPO=$(ssh "${SSH_OPTS[@]}" "$USERNAME@$IP" 'git -C /opt/vfv/Food_all rev-parse --short HEAD 2>/dev/null || true' | tr '\n' ' ')
+          HEALTH=$(ssh "${SSH_OPTS[@]}" "$USERNAME@$IP" 'cat /opt/vfv/Food_all/food_scan_health.json 2>/dev/null || echo {}' | tr '\n' ' ')
           rm -f /tmp/key.pem /tmp/key-cert.pub /tmp/access.json /tmp/remote-bootstrap.sh
 
           jq -n \
-            --arg instance "$INSTANCE_NAME" \
-            --arg ip "$IP" \
-            --arg bootstrap "$BOOTSTRAP" \
-            --arg docker "$DOCKER" \
-            --arg timer "$TIMER" \
-            --arg repo "$REPO" \
-            --arg checked_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            '{ready:($bootstrap|contains("ready")),instance_name:$instance,public_ip:$ip,bootstrap_status:$bootstrap,docker:$docker,self_update_timer:$timer,repo_head:$repo,checked_at:$checked_at}' > aws_bootstrap_result.json
+            --arg instance "$INSTANCE_NAME" --arg ip "$IP" --arg bootstrap "$BOOTSTRAP" \
+            --arg updater "$UPDATE_TIMER" --arg scanner "$SCAN_TIMER" --arg scan_status "$SCAN_STATUS" \
+            --arg repo "$REPO" --argjson health "$HEALTH" --arg checked_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{ready:(($bootstrap|contains("ready")) and $updater=="active" and $scanner=="active"),instance_name:$instance,public_ip:$ip,bootstrap_status:$bootstrap,self_update_timer:$updater,scan_timer:$scanner,last_scan_result:$scan_status,repo_head:$repo,food_scan_health:$health,checked_at:$checked_at}' > aws_bootstrap_result.json
           jq -e '.ready == true' aws_bootstrap_result.json >/dev/null
 
-      - name: Persist result
+      - name: Persist health result
+        if: always()
         shell: bash
         run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add aws_bootstrap_result.json
-          git commit -m "Record repaired Lightsail bootstrap result" || exit 0
-          git push
+          if [ -f aws_bootstrap_result.json ]; then
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git add aws_bootstrap_result.json
+            git commit -m "Update AWS Food crawler health" || exit 0
+            git push
+          fi
