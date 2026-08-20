@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-08-20T16:30:00Z",
+  "checked_at": "2026-08-20T17:29:30Z",
   "runtime_truth": "supabase:mqqfjrytmpasopgeodfa",
   "zero_lovable": true,
   "aws": {
@@ -14,17 +14,25 @@
     "status": "BLOCKER_STALE_EVIDENCE"
   },
   "food": {
-    "venues_total": 68,
-    "raw_candidates_total": 97,
-    "dishes_total": 29,
+    "venues_total": 69,
+    "raw_candidates_total": 98,
+    "dishes_total": 32,
     "reviews_total": 1,
     "active_food_offers": 158,
     "literal_codes": 12,
     "last_inventory_change": {
       "venues_added": 1,
-      "province": "Hải Phòng",
-      "focus": "LOCAL_STREET_FOOD_FIRST"
+      "province": "Nghệ An",
+      "focus": "LOCAL_STREET_FOOD_FIRST",
+      "venue": "Bún chả Bà Chằn"
+    },
+    "daily_deal_scan": {
+      "date_local": "2026-08-21",
+      "sources_attempted": 3,
+      "active_offers_new": 0,
+      "literal_codes_new": 0,
+      "codes_reverified": 2
     }
   },
-  "next_bottleneck": "restore current AWS SSH/bootstrap/Docker evidence, then continue province-rotation local venue coverage and ordering/review enrichment"
+  "next_bottleneck": "restore current AWS SSH/bootstrap/Docker evidence; continue province-rotation local/street-food coverage and enrich public Google Maps/review/ordering links"
 }
