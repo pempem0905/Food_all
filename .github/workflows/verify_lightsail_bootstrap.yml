@@ -1,0 +1,63 @@
+name: Verify Lightsail Bootstrap
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/verify_lightsail_bootstrap.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      INSTANCE_NAME: vfv-crawler-asia-01
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify bootstrap over SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          IP=$(aws lightsail get-instance --instance-name "$INSTANCE_NAME" --region "$AWS_REGION" --query 'instance.publicIpAddress' --output text)
+          aws lightsail download-default-key-pair --region "$AWS_REGION" --output json >/tmp/key.json
+          jq -r '.privateKeyBase64' /tmp/key.json | base64 -d >/tmp/lightsail.pem
+          chmod 600 /tmp/lightsail.pem
+
+          READY=false
+          DOCKER=""
+          TIMER=""
+          for i in $(seq 1 60); do
+            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=8 -i /tmp/lightsail.pem ubuntu@"$IP" 'test -f /opt/vfv/bootstrap_status && cat /opt/vfv/bootstrap_status' 2>/dev/null | grep -q ready; then
+              READY=true
+              DOCKER=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=8 -i /tmp/lightsail.pem ubuntu@"$IP" 'docker --version' 2>/dev/null || true)
+              TIMER=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=8 -i /tmp/lightsail.pem ubuntu@"$IP" 'systemctl is-active vfv-self-update.timer' 2>/dev/null || true)
+              break
+            fi
+            sleep 10
+          done
+
+          rm -f /tmp/lightsail.pem /tmp/key.json
+          jq -n \
+            --argjson ready "$READY" \
+            --arg instance "$INSTANCE_NAME" \
+            --arg ip "$IP" \
+            --arg docker "$DOCKER" \
+            --arg timer "$TIMER" \
+            --arg checked_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{ready:$ready,instance_name:$instance,public_ip:$ip,docker:$docker,self_update_timer:$timer,checked_at:$checked_at}' > aws_bootstrap_result.json
+          test "$READY" = "true"
+
+      - name: Persist bootstrap result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add aws_bootstrap_result.json
+          git commit -m "Record Lightsail bootstrap verification" || exit 0
+          git push
