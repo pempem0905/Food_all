@@ -1,0 +1,30 @@
+{
+  "checked_at": "2026-08-20T16:30:00Z",
+  "runtime_truth": "supabase:mqqfjrytmpasopgeodfa",
+  "zero_lovable": true,
+  "aws": {
+    "instance_name": "vfv-crawler-asia-01",
+    "state_last_verified": "running",
+    "last_api_check_at": "2026-08-20T11:43:07Z",
+    "last_bootstrap_check_at": "2026-08-20T11:52:21Z",
+    "ssh_ok": false,
+    "bootstrap_status": "missing",
+    "docker": "missing",
+    "runtime_verified": false,
+    "status": "BLOCKER_STALE_EVIDENCE"
+  },
+  "food": {
+    "venues_total": 68,
+    "raw_candidates_total": 97,
+    "dishes_total": 29,
+    "reviews_total": 1,
+    "active_food_offers": 158,
+    "literal_codes": 12,
+    "last_inventory_change": {
+      "venues_added": 1,
+      "province": "Hải Phòng",
+      "focus": "LOCAL_STREET_FOOD_FIRST"
+    }
+  },
+  "next_bottleneck": "restore current AWS SSH/bootstrap/Docker evidence, then continue province-rotation local venue coverage and ordering/review enrichment"
+}
