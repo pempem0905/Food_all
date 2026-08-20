@@ -1,0 +1,12 @@
+{
+  "instance_name": "vfv-crawler-asia-01",
+  "state": "running",
+  "public_ip": "13.250.9.71",
+  "ssh_ok": false,
+  "cloud_init": "unknown",
+  "bootstrap_status": "missing",
+  "docker": "missing",
+  "self_update_timer": "unknown",
+  "apt_process": "unknown",
+  "checked_at": "2026-08-20T11:52:21Z"
+}
