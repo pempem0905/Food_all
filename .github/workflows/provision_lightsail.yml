@@ -1,0 +1,156 @@
+name: Provision Lightsail Crawler
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/provision_lightsail.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      INSTANCE_NAME: vfv-crawler-asia-01
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate AWS access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$AWS_ACCESS_KEY_ID"
+          test -n "$AWS_SECRET_ACCESS_KEY"
+          test -n "$AWS_REGION"
+          aws sts get-caller-identity >/dev/null
+          test "$AWS_REGION" = "ap-southeast-1"
+
+      - name: Provision Lightsail instance idempotently
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if aws lightsail get-instance --instance-name "$INSTANCE_NAME" --region "$AWS_REGION" >/tmp/existing.json 2>/dev/null; then
+            echo "Instance already exists; not creating another one."
+          else
+            aws lightsail get-regions --include-availability-zones --region "$AWS_REGION" --output json >/tmp/regions.json
+            AZ=$(jq -r --arg r "$AWS_REGION" '.regions[] | select(.name==$r) | .availabilityZones[0].zoneName' /tmp/regions.json)
+            test -n "$AZ" && test "$AZ" != "null"
+
+            aws lightsail get-blueprints --region "$AWS_REGION" --output json >/tmp/blueprints.json
+            BLUEPRINT_ID=$(jq -r '[.blueprints[] | select(.isActive==true and (.blueprintId | test("ubuntu_24_04")))] | first | .blueprintId // empty' /tmp/blueprints.json)
+            if [ -z "$BLUEPRINT_ID" ]; then
+              BLUEPRINT_ID=$(jq -r '[.blueprints[] | select(.isActive==true and (.blueprintId | test("ubuntu_22_04")))] | first | .blueprintId // empty' /tmp/blueprints.json)
+            fi
+            test -n "$BLUEPRINT_ID"
+
+            aws lightsail get-bundles --region "$AWS_REGION" --output json >/tmp/bundles.json
+            BUNDLE_ID=$(jq -r '[.bundles[] | select(.isActive==true and .ramSizeInGb>=2 and .cpuCount>=2 and .price<=12)] | sort_by(.price) | last | .bundleId // empty' /tmp/bundles.json)
+            test -n "$BUNDLE_ID" || (echo "No active <=$12 bundle with >=2GB RAM and >=2 vCPU; refusing to buy a more expensive plan." && exit 2)
+            BUNDLE_PRICE=$(jq -r --arg id "$BUNDLE_ID" '.bundles[] | select(.bundleId==$id) | .price' /tmp/bundles.json)
+
+            cat >/tmp/user-data.sh <<'BOOTSTRAP'
+          #!/bin/bash
+          set -euxo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -y
+          apt-get install -y docker.io git curl jq unzip python3 python3-pip ca-certificates
+          systemctl enable --now docker
+          mkdir -p /opt/vfv
+          if [ ! -d /opt/vfv/Food_all/.git ]; then
+            git clone https://github.com/pempem0905/Food_all.git /opt/vfv/Food_all || true
+          else
+            git -C /opt/vfv/Food_all pull --ff-only || true
+          fi
+          cat >/usr/local/bin/vfv-self-update <<'EOF'
+          #!/bin/bash
+          set -e
+          if [ -d /opt/vfv/Food_all/.git ]; then
+            git -C /opt/vfv/Food_all fetch origin main
+            git -C /opt/vfv/Food_all reset --hard origin/main
+          fi
+          EOF
+          chmod +x /usr/local/bin/vfv-self-update
+          cat >/etc/systemd/system/vfv-self-update.service <<'EOF'
+          [Unit]
+          Description=VFV crawler repo updater
+          After=network-online.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/vfv-self-update
+          EOF
+          cat >/etc/systemd/system/vfv-self-update.timer <<'EOF'
+          [Unit]
+          Description=Refresh VFV crawler repo every 5 minutes
+
+          [Timer]
+          OnBootSec=2min
+          OnUnitActiveSec=5min
+          Unit=vfv-self-update.service
+
+          [Install]
+          WantedBy=timers.target
+          EOF
+          systemctl daemon-reload
+          systemctl enable --now vfv-self-update.timer
+          printf 'ready\n' >/opt/vfv/bootstrap_status
+          BOOTSTRAP
+
+            aws lightsail create-instances \
+              --instance-names "$INSTANCE_NAME" \
+              --availability-zone "$AZ" \
+              --blueprint-id "$BLUEPRINT_ID" \
+              --bundle-id "$BUNDLE_ID" \
+              --user-data file:///tmp/user-data.sh \
+              --region "$AWS_REGION" >/tmp/create.json
+
+            echo "$BUNDLE_ID" >/tmp/bundle_id
+            echo "$BUNDLE_PRICE" >/tmp/bundle_price
+            echo "$BLUEPRINT_ID" >/tmp/blueprint_id
+            echo "$AZ" >/tmp/az
+          fi
+
+          for i in $(seq 1 30); do
+            STATE=$(aws lightsail get-instance-state --instance-name "$INSTANCE_NAME" --region "$AWS_REGION" --query 'state.name' --output text 2>/dev/null || true)
+            if [ "$STATE" = "running" ]; then break; fi
+            sleep 10
+          done
+
+          aws lightsail get-instance --instance-name "$INSTANCE_NAME" --region "$AWS_REGION" --output json >/tmp/instance.json
+          BUNDLE_ID=$(jq -r '.instance.bundleId' /tmp/instance.json)
+          BLUEPRINT_ID=$(jq -r '.instance.blueprintId' /tmp/instance.json)
+          AZ=$(jq -r '.instance.location.availabilityZone' /tmp/instance.json)
+          PUBLIC_IP=$(jq -r '.instance.publicIpAddress // empty' /tmp/instance.json)
+          STATE=$(jq -r '.instance.state.name' /tmp/instance.json)
+          aws lightsail get-bundles --region "$AWS_REGION" --output json >/tmp/bundles_final.json
+          PRICE=$(jq -r --arg id "$BUNDLE_ID" '.bundles[] | select(.bundleId==$id) | .price' /tmp/bundles_final.json)
+
+          jq -n \
+            --arg ok "true" \
+            --arg name "$INSTANCE_NAME" \
+            --arg region "$AWS_REGION" \
+            --arg az "$AZ" \
+            --arg state "$STATE" \
+            --arg public_ip "$PUBLIC_IP" \
+            --arg blueprint "$BLUEPRINT_ID" \
+            --arg bundle "$BUNDLE_ID" \
+            --arg price "$PRICE" \
+            --arg checked_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{ok:($ok=="true"),instance_name:$name,region:$region,availability_zone:$az,state:$state,public_ip:$public_ip,blueprint_id:$blueprint,bundle_id:$bundle,monthly_price_usd:($price|tonumber),checked_at:$checked_at}' \
+            > aws_lightsail_result.json
+
+      - name: Persist provisioning result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add aws_lightsail_result.json
+          git commit -m "Record Lightsail crawler provisioning result" || exit 0
+          git push
