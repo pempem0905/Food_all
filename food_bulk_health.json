@@ -1,8 +1,8 @@
 {
-  "checked_at": "2026-08-21T05:45:06.499392+00:00",
+  "checked_at": "2026-08-21T07:04:12.842763+00:00",
   "sources_attempted": 6,
-  "raw_candidates": 9777,
-  "unique_candidates": 9777,
+  "raw_candidates": 8551,
+  "unique_candidates": 8551,
   "areas": [
     "ha_noi",
     "hcm",
@@ -11,5 +11,14 @@
     "can_tho",
     "hue"
   ],
-  "errors": []
+  "errors": [
+    {
+      "area": "can_tho",
+      "error": "429 Client Error: Too Many Requests for url: https://overpass-api.de/api/interpreter"
+    },
+    {
+      "area": "hue",
+      "error": "429 Client Error: Too Many Requests for url: https://overpass-api.de/api/interpreter"
+    }
+  ]
 }
