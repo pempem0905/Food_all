@@ -1,8 +1,8 @@
 {
-  "checked_at": "2026-08-21T10:42:47.709441+00:00",
+  "checked_at": "2026-08-21T11:36:58.899807+00:00",
   "sources_attempted": 6,
-  "raw_candidates": 8960,
-  "unique_candidates": 8960,
+  "raw_candidates": 6153,
+  "unique_candidates": 6153,
   "areas": [
     "ha_noi",
     "hcm",
@@ -13,11 +13,11 @@
   ],
   "errors": [
     {
-      "area": "hai_phong",
-      "error": "429 Client Error: Too Many Requests for url: https://overpass-api.de/api/interpreter"
+      "area": "ha_noi",
+      "error": "504 Server Error: Gateway Timeout for url: https://overpass-api.de/api/interpreter"
     },
     {
-      "area": "hue",
+      "area": "can_tho",
       "error": "429 Client Error: Too Many Requests for url: https://overpass-api.de/api/interpreter"
     }
   ]
