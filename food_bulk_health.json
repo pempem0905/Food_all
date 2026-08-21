@@ -1,8 +1,10 @@
 {
-  "checked_at": "2026-08-21T14:50:21.762612+00:00",
+  "checked_at": "2026-08-21T15:49:19.872559+00:00",
   "sources_attempted": 6,
-  "raw_candidates": 6661,
-  "unique_candidates": 6661,
+  "raw_candidates": 6855,
+  "unique_candidates": 6855,
+  "published_candidates": 6855,
+  "degraded_snapshot_blocked": false,
   "areas": [
     "ha_noi",
     "hcm",
@@ -13,20 +15,8 @@
   ],
   "errors": [
     {
-      "area": "da_nang",
-      "error": "429 Client Error: Too Many Requests for url: https://overpass-api.de/api/interpreter"
-    },
-    {
-      "area": "hai_phong",
-      "error": "429 Client Error: Too Many Requests for url: https://overpass-api.de/api/interpreter"
-    },
-    {
-      "area": "can_tho",
-      "error": "429 Client Error: Too Many Requests for url: https://overpass-api.de/api/interpreter"
-    },
-    {
-      "area": "hue",
-      "error": "429 Client Error: Too Many Requests for url: https://overpass-api.de/api/interpreter"
+      "area": "ha_noi",
+      "error": "https://overpass.nchc.org.tw/api/interpreter: HTTPSConnectionPool(host='overpass.nchc.org.tw', port=443): Max retries exceeded with url: /api/interpreter (Caused by NameResolutionError(\"HTTPSConnection(host='overpass.nchc.org.tw', port=443): Failed to resolve 'overpass.nchc.org.tw' ([Errno -2] Name "
     }
   ]
 }
