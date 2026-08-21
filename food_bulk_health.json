@@ -1,8 +1,8 @@
 {
-  "checked_at": "2026-08-21T13:57:39.116253+00:00",
+  "checked_at": "2026-08-21T14:50:21.762612+00:00",
   "sources_attempted": 6,
-  "raw_candidates": 8258,
-  "unique_candidates": 8258,
+  "raw_candidates": 6661,
+  "unique_candidates": 6661,
   "areas": [
     "ha_noi",
     "hcm",
@@ -12,6 +12,10 @@
     "hue"
   ],
   "errors": [
+    {
+      "area": "da_nang",
+      "error": "429 Client Error: Too Many Requests for url: https://overpass-api.de/api/interpreter"
+    },
     {
       "area": "hai_phong",
       "error": "429 Client Error: Too Many Requests for url: https://overpass-api.de/api/interpreter"
