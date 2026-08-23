@@ -1,9 +1,9 @@
 {
-  "checked_at": "2026-08-23T04:50:04.915873+00:00",
+  "checked_at": "2026-08-23T05:42:33.276258+00:00",
   "sources_attempted": 6,
-  "raw_candidates": 9787,
-  "unique_candidates": 9787,
-  "published_candidates": 9787,
+  "raw_candidates": 9085,
+  "unique_candidates": 9085,
+  "published_candidates": 9085,
   "degraded_snapshot_blocked": false,
   "areas": [
     "ha_noi",
@@ -13,5 +13,10 @@
     "can_tho",
     "hue"
   ],
-  "errors": []
+  "errors": [
+    {
+      "area": "can_tho",
+      "error": "https://overpass-api.de/api/interpreter: HTTP 429; https://overpass.nchc.org.tw/api/interpreter: HTTPSConnectionPool(host='overpass.nchc.org.tw', port=443): Max retries exceeded with url: /api/interpreter (Caused by NameResolutionError(\"HTTPSConnection(host='overpass.nchc.org.tw', port=443): Failed "
+    }
+  ]
 }
