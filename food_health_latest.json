@@ -1,7 +1,8 @@
 {
-  "checked_at": "2026-08-20T17:29:30Z",
+  "checked_at": "2026-08-24T14:44:56Z",
   "runtime_truth": "supabase:mqqfjrytmpasopgeodfa",
   "zero_lovable": true,
+  "voucher_scan": "paused",
   "aws": {
     "instance_name": "vfv-crawler-asia-01",
     "state_last_verified": "running",
@@ -11,28 +12,28 @@
     "bootstrap_status": "missing",
     "docker": "missing",
     "runtime_verified": false,
-    "status": "BLOCKER_STALE_EVIDENCE"
+    "status": "OPTIONAL_NOT_BLOCKING_STALE_EVIDENCE"
   },
   "food": {
-    "venues_total": 69,
-    "raw_candidates_total": 98,
-    "dishes_total": 32,
-    "reviews_total": 1,
-    "active_food_offers": 158,
-    "literal_codes": 12,
-    "last_inventory_change": {
-      "venues_added": 1,
-      "province": "Nghệ An",
-      "focus": "LOCAL_STREET_FOOD_FIRST",
-      "venue": "Bún chả Bà Chằn"
-    },
-    "daily_deal_scan": {
-      "date_local": "2026-08-21",
-      "sources_attempted": 3,
-      "active_offers_new": 0,
-      "literal_codes_new": 0,
-      "codes_reverified": 2
+    "venues_total": 9862,
+    "raw_candidates_total": 9891,
+    "last_bulk_ingest": {
+      "worker": "bulk-github-osm",
+      "raw_candidates": 9790,
+      "venues_inserted": 3461,
+      "venues_updated": 6329,
+      "duplicates": 6329,
+      "rejected": 0,
+      "errors": 0,
+      "artifact_area_labels": 83,
+      "source": "GitHub OSM bulk artifact"
     }
   },
-  "next_bottleneck": "restore current AWS SSH/bootstrap/Docker evidence; continue province-rotation local/street-food coverage and enrich public Google Maps/review/ordering links"
+  "closed_loop": {
+    "github_bulk_scan_cron": "7 * * * *",
+    "supabase_import_cron": "17 * * * *",
+    "supabase_import_job": "food-bulk-import-hourly",
+    "mode": "bulk-first"
+  },
+  "next_bottleneck": "rotate nationwide coverage beyond current high-yield OSM batches; keep AWS optional"
 }
