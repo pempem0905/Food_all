@@ -1,9 +1,9 @@
 {
-  "checked_at": "2026-08-24T13:11:43.701246+00:00",
+  "checked_at": "2026-08-24T14:56:58.940366+00:00",
   "sources_attempted": 6,
-  "raw_candidates": 9790,
-  "unique_candidates": 9790,
-  "published_candidates": 9790,
+  "raw_candidates": 9766,
+  "unique_candidates": 9766,
+  "published_candidates": 9766,
   "degraded_snapshot_blocked": false,
   "areas": [
     "ha_noi",
