@@ -7,8 +7,15 @@ on:
       - '.github/workflows/repair_lightsail_bootstrap.yml'
       - 'food_golden_scanner.py'
       - 'requirements.txt'
-  schedule:
-    - cron: '17 * * * *'
+  # ⛔ FROZEN (EMERGENCY FREEZE, user request): schedule disabled, file preserved.
+  # This workflow SSHes into the Lightsail box and (re)installs systemd timers
+  # there (vfv-self-update.timer, vfv-food-scan.timer) — freezing this GitHub
+  # Actions schedule stops it from RE-installing/repairing those timers, but
+  # does NOT stop timers already running on the box itself. That needs a
+  # manual SSH in and `systemctl stop/disable` on the instance.
+  # To restore: uncomment the 2 lines below.
+  # schedule:
+  #   - cron: '17 * * * *'
 
 permissions:
   contents: write
