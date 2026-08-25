@@ -1,8 +1,10 @@
 name: FOOD_ALL Bulk Venue Scanner
 
 on:
-  schedule:
-    - cron: '7 * * * *'
+  # ⛔ FROZEN (EMERGENCY FREEZE, user request): schedule disabled, file preserved.
+  # To restore: uncomment the 2 lines below.
+  # schedule:
+  #   - cron: '7 * * * *'
   workflow_dispatch:
 
 permissions:
