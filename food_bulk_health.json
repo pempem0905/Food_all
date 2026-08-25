@@ -1,10 +1,10 @@
 {
-  "checked_at": "2026-08-25T09:53:01.561493+00:00",
+  "checked_at": "2026-08-25T10:54:52.455067+00:00",
   "sources_attempted": 6,
-  "raw_candidates": 9499,
-  "unique_candidates": 9499,
+  "raw_candidates": 6869,
+  "unique_candidates": 6869,
   "published_candidates": 9499,
-  "degraded_snapshot_blocked": false,
+  "degraded_snapshot_blocked": true,
   "areas": [
     "ha_noi",
     "hcm",
@@ -15,8 +15,8 @@
   ],
   "errors": [
     {
-      "area": "hai_phong",
-      "error": "https://overpass.kumi.systems/api/interpreter: 500 Server Error: Internal Server Error for url: https://overpass.kumi.systems/api/interpreter; https://overpass.nchc.org.tw/api/interpreter: HTTPSConnectionPool(host='overpass.nchc.org.tw', port=443): Max retries exceeded with url: /api/interpreter (Ca"
+      "area": "ha_noi",
+      "error": "https://overpass.nchc.org.tw/api/interpreter: HTTPSConnectionPool(host='overpass.nchc.org.tw', port=443): Max retries exceeded with url: /api/interpreter (Caused by NameResolutionError(\"HTTPSConnection(host='overpass.nchc.org.tw', port=443): Failed to resolve 'overpass.nchc.org.tw' ([Errno -2] Name "
     }
   ]
 }
